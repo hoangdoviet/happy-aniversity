@@ -36,7 +36,11 @@ export const GestureGuide: React.FC = () => {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <span className="text-2xl">👉</span>
-                                    <span><b>Dơ ngón trỏ</b> → Chọn ảnh sáng vàng</span>
+                                    <span><b>Dơ ngón trỏ</b> → Di đến ảnh (nền vàng)</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-2xl">🤟</span>
+                                    <span><b>Kẹp ngón cái + trỏ</b> → Mở preview ảnh</span>
                                 </div>
                             </div>
                         </div>
@@ -65,12 +69,12 @@ export const GestureGuide: React.FC = () => {
                                     <span><b>Vuốt ngang</b> → Chuyển ảnh/video</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-xl">✊</span>
-                                    <span><b>Nắm tay</b> → Zoom in</span>
+                                    <span className="text-xl">🤟</span>
+                                    <span><b>Kẹp giữa màn hình</b> → Đóng preview</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-xl">✋</span>
-                                    <span><b>Mở tay</b> → Zoom out</span>
+                                    <span className="text-xl">↑</span>
+                                    <span><b>Vuốt tay lên nhanh</b> → Đóng preview</span>
                                 </div>
                             </div>
                         </div>

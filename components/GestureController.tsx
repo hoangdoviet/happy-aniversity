@@ -18,6 +18,8 @@ interface GestureControllerProps {
   onPointerDown?: () => void; // pointer (index click) down
   onPointerUp?: () => void; // pointer up
   onPointingDetected?: () => void; // Index finger pointing to select
+  /** When true, raise camera preview above modal (z-[60]) */
+  isModalOpen?: boolean;
 }
 
 export const GestureController: React.FC<GestureControllerProps> = ({
@@ -34,7 +36,8 @@ export const GestureController: React.FC<GestureControllerProps> = ({
   onPointingDetected,
   onCursorMove,
   onPointerDown,
-  onPointerUp
+  onPointerUp,
+  isModalOpen = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -57,13 +60,27 @@ export const GestureController: React.FC<GestureControllerProps> = ({
   const lastThumbsUpTime = useRef(0);
   const lastHeartTime = useRef(0);
   const lastQuickThumbsUpTime = useRef(0);
-  const lastPointingTime = useRef(0);
+  // lastPointingTime removed — pointing no longer fires pointer events (PINCH does instead)
   const SPECIAL_GESTURE_COOLDOWN = 5000; // 5 seconds cooldown
   const QUICK_GESTURE_COOLDOWN = 1000; // 1 second cooldown for quick thumbs up
-  const POINTING_COOLDOWN = 500; // 0.5 second cooldown for pointing
+  // POINTING_COOLDOWN removed — pointing no longer fires pointer events (PINCH does instead)
   const thumbsUpStartTime = useRef<number>(0);
   const heartStartTime = useRef<number>(0);
   const pointerDownRef = useRef(false);
+
+  // Always-current callbacks ref — avoids stale closures inside the RAF loop
+  const cbRef = useRef({
+    onModeChange, onHandPosition, onTwoHandsDetected, onThumbsUpDetected,
+    onThumbsUpProgress, onHeartDetected, onHeartProgress, onFistDetected,
+    onQuickThumbsUp, onPointingDetected, onCursorMove, onPointerDown, onPointerUp,
+  });
+  useEffect(() => {
+    cbRef.current = {
+      onModeChange, onHandPosition, onTwoHandsDetected, onThumbsUpDetected,
+      onThumbsUpProgress, onHeartDetected, onHeartProgress, onFistDetected,
+      onQuickThumbsUp, onPointingDetected, onCursorMove, onPointerDown, onPointerUp,
+    };
+  });  // runs after every render to stay in sync
 
   useEffect(() => {
     let handLandmarker: HandLandmarker | null = null;
@@ -187,18 +204,34 @@ export const GestureController: React.FC<GestureControllerProps> = ({
       });
     };
 
+    // Throttle: limit ML inference to ~20 fps to free GPU/CPU for Three.js + video
+    const INFERENCE_INTERVAL_MS = 50;
+    let lastInferenceMs = 0;
+    // EMA-smoothed cursor position (local to this setup closure — survives RAF loop)
+    const smoothCursor = { x: 0.5, y: 0.5 };
+    const CURSOR_ALPHA = 0.32; // 0 = frozen, 1 = instant; ~0.3 = smooth yet responsive
+
     const predictWebcam = () => {
       if (!handLandmarker || !videoRef.current) return;
 
-      const startTimeMs = performance.now();
+      const nowMs = performance.now();
+
+      // Skip inference this frame if called too soon — still reschedule
+      if (nowMs - lastInferenceMs < INFERENCE_INTERVAL_MS) {
+        animationFrameId = requestAnimationFrame(predictWebcam);
+        return;
+      }
+      lastInferenceMs = nowMs;
+
+      const startTimeMs = nowMs;
       if (videoRef.current.videoWidth > 0) { // Ensure video is ready
         const result = handLandmarker.detectForVideo(videoRef.current, startTimeMs);
 
         if (result.landmarks && result.landmarks.length > 0) {
           // Check if two hands are detected
           const twoHandsDetected = result.landmarks.length >= 2;
-          if (onTwoHandsDetected) {
-            onTwoHandsDetected(twoHandsDetected);
+          if (cbRef.current.onTwoHandsDetected) {
+            cbRef.current.onTwoHandsDetected(twoHandsDetected);
           }
 
           // Draw all detected hands at once
@@ -206,19 +239,22 @@ export const GestureController: React.FC<GestureControllerProps> = ({
 
           // Use first hand for gesture detection
           const landmarks = result.landmarks[0];
-          // Emit a cursor position using index tip when available (more precise than palm)
-          if (landmarks[8] && onCursorMove) {
-            onCursorMove(landmarks[8].x, landmarks[8].y, true);
+          // Emit a smoothed cursor position using index tip (landmark 8)
+          if (landmarks[8] && cbRef.current.onCursorMove) {
+            // EMA low-pass filter: blend toward raw position each frame
+            smoothCursor.x += (landmarks[8].x - smoothCursor.x) * CURSOR_ALPHA;
+            smoothCursor.y += (landmarks[8].y - smoothCursor.y) * CURSOR_ALPHA;
+            cbRef.current.onCursorMove(smoothCursor.x, smoothCursor.y, true);
           }
           detectGesture(landmarks);
         } else {
           setGestureStatus("No hand detected");
           setHandPos(null); // Clear hand position when no hand detected
-          if (onHandPosition) {
-            onHandPosition(0.5, 0.5, false); // No hand detected
+          if (cbRef.current.onHandPosition) {
+            cbRef.current.onHandPosition(0.5, 0.5, false); // No hand detected
           }
-          if (onTwoHandsDetected) {
-            onTwoHandsDetected(false);
+          if (cbRef.current.onTwoHandsDetected) {
+            cbRef.current.onTwoHandsDetected(false);
           }
           // Clear canvas when no hand detected
           if (canvasRef.current) {
@@ -233,8 +269,8 @@ export const GestureController: React.FC<GestureControllerProps> = ({
           closedFrames.current = Math.max(0, closedFrames.current - 1);
           thumbsUpFrames.current = 0;
           heartFrames.current = 0;
-          if (onThumbsUpProgress) onThumbsUpProgress(0);
-          if (onHeartProgress) onHeartProgress(0);
+          if (cbRef.current.onThumbsUpProgress) cbRef.current.onThumbsUpProgress(0);
+          if (cbRef.current.onHeartProgress) cbRef.current.onHeartProgress(0);
         }
       }
 
@@ -254,10 +290,9 @@ export const GestureController: React.FC<GestureControllerProps> = ({
       const palmCenterY = (landmarks[0].y + landmarks[5].y + landmarks[9].y + landmarks[13].y + landmarks[17].y) / 5;
 
       // Send hand position for camera control
-      // Normalize coordinates: x and y are in [0, 1], center at (0.5, 0.5)
       setHandPos({ x: palmCenterX, y: palmCenterY });
-      if (onHandPosition) {
-        onHandPosition(palmCenterX, palmCenterY, true);
+      if (cbRef.current.onHandPosition) {
+        cbRef.current.onHandPosition(palmCenterX, palmCenterY, true);
       }
 
       const fingerTips = [8, 12, 16, 20];
@@ -307,8 +342,8 @@ export const GestureController: React.FC<GestureControllerProps> = ({
           if (quickThumbsUpFrames.current === QUICK_THUMBS_UP_THRESHOLD) {
             setGestureStatus("👍 Photo Selected!");
             lastQuickThumbsUpTime.current = now;
-            if (onQuickThumbsUp) {
-              onQuickThumbsUp();
+            if (cbRef.current.onQuickThumbsUp) {
+              cbRef.current.onQuickThumbsUp();
             }
           }
           setGestureStatus(`👍 Giữ thêm để mở bí mật...`);
@@ -317,7 +352,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({
         // LONG THUMBS UP (5 seconds) - For secret unlock
         if (now - lastThumbsUpTime.current < SPECIAL_GESTURE_COOLDOWN) {
           setGestureStatus("👍 Cooldown bí mật... Chờ một chút");
-          if (onThumbsUpProgress) onThumbsUpProgress(0);
+          if (cbRef.current.onThumbsUpProgress) cbRef.current.onThumbsUpProgress(0);
         } else {
           // Start counting for secret
           if (thumbsUpFrames.current === 0) {
@@ -328,8 +363,8 @@ export const GestureController: React.FC<GestureControllerProps> = ({
           const progressRatio = thumbsUpFrames.current / SPECIAL_GESTURE_THRESHOLD;
           const lightProgress = Math.min(5, Math.floor(progressRatio * 5));
 
-          if (onThumbsUpProgress) {
-            onThumbsUpProgress(lightProgress);
+          if (cbRef.current.onThumbsUpProgress) {
+            cbRef.current.onThumbsUpProgress(lightProgress);
           }
 
           if (thumbsUpFrames.current >= SPECIAL_GESTURE_THRESHOLD) {
@@ -337,10 +372,10 @@ export const GestureController: React.FC<GestureControllerProps> = ({
             lastThumbsUpTime.current = now;
             thumbsUpFrames.current = 0;
             quickThumbsUpFrames.current = 0;
-            if (onThumbsUpDetected) {
-              onThumbsUpDetected();
+            if (cbRef.current.onThumbsUpDetected) {
+              cbRef.current.onThumbsUpDetected();
             }
-            if (onThumbsUpProgress) onThumbsUpProgress(5);
+            if (cbRef.current.onThumbsUpProgress) cbRef.current.onThumbsUpProgress(5);
             return;
           } else if (thumbsUpFrames.current > QUICK_THUMBS_UP_THRESHOLD) {
             setGestureStatus(`👍 Giữ lại... (${lightProgress}/5) - Bí mật!`);
@@ -352,7 +387,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({
           // Reset if gesture is broken
           thumbsUpFrames.current = 0;
           quickThumbsUpFrames.current = 0;
-          if (onThumbsUpProgress) onThumbsUpProgress(0);
+          if (cbRef.current.onThumbsUpProgress) cbRef.current.onThumbsUpProgress(0);
         }
       }
 
@@ -378,7 +413,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({
         if (now - lastHeartTime.current < SPECIAL_GESTURE_COOLDOWN) {
           setGestureStatus("✌️ Cooldown... Chờ một chút");
           heartFrames.current = 0;
-          if (onHeartProgress) onHeartProgress(0);
+          if (cbRef.current.onHeartProgress) cbRef.current.onHeartProgress(0);
         } else {
           // Start counting
           if (heartFrames.current === 0) {
@@ -391,18 +426,18 @@ export const GestureController: React.FC<GestureControllerProps> = ({
           const progressRatio = heartFrames.current / SPECIAL_GESTURE_THRESHOLD;
           const lightProgress = Math.min(5, Math.floor(progressRatio * 5));
 
-          if (onHeartProgress) {
-            onHeartProgress(lightProgress);
+          if (cbRef.current.onHeartProgress) {
+            cbRef.current.onHeartProgress(lightProgress);
           }
 
           if (heartFrames.current >= SPECIAL_GESTURE_THRESHOLD) {
             setGestureStatus("✌️ PEACE SIGN - Secret Unlocked!");
             lastHeartTime.current = now;
             heartFrames.current = 0;
-            if (onHeartDetected) {
-              onHeartDetected();
+            if (cbRef.current.onHeartDetected) {
+              cbRef.current.onHeartDetected();
             }
-            if (onHeartProgress) onHeartProgress(5);
+            if (cbRef.current.onHeartProgress) cbRef.current.onHeartProgress(5);
             return;
           } else {
             setGestureStatus(`✌️ Giữ lại dấu V... (${lightProgress}/5)`);
@@ -413,46 +448,44 @@ export const GestureController: React.FC<GestureControllerProps> = ({
         if (heartFrames.current > 0) {
           // Reset if gesture is broken
           heartFrames.current = 0;
-          if (onHeartProgress) onHeartProgress(0);
+          if (cbRef.current.onHeartProgress) cbRef.current.onHeartProgress(0);
         }
       }
 
-      // === POINTING GESTURE DETECTION (Index finger extended, like clicking) ===
-      // Heuristics to reduce false positives:
-      // - Only index extended (extendedFingers === 1)
-      // - Thumb NOT extended
-      // - Index points upward (tip above base) and roughly vertical (dx small vs dy)
-      const idxDx = indexTip.x - indexBase.x;
-      const idxDy = indexTip.y - indexBase.y; // negative when pointing up in normalized coords
-      const thumbExtended = distThumbTip > distThumbBase * 1.2;
-      const isIndexUp = idxDy < -0.02 && Math.abs(idxDx) < Math.abs(idxDy) * 0.7;
+      // === PINCH DETECTION (index tip close to thumb tip → select/click) ===
+      // This keeps the cursor on the polaroid while the user "pinches" to select.
+      // Much more reliable than pointing-up, which shifts cursor position upward.
+      const pinchDist = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+      const PINCH_THRESHOLD = 0.07; // ~7% of frame width
+      const isPinching = pinchDist < PINCH_THRESHOLD;
 
-      const isPointing = indexExtended && extendedFingers === 1 && !thumbExtended && isIndexUp;
-
-      if (isPointing) {
-        const now = Date.now();
-        pointingFrames.current++;
-
-        if (pointingFrames.current >= POINTING_THRESHOLD && now - lastPointingTime.current > POINTING_COOLDOWN) {
-          // Trigger pointing action once when threshold reached
-          if (pointingFrames.current === POINTING_THRESHOLD) {
-            setGestureStatus("👉 Pointing - Select!");
-            lastPointingTime.current = now;
-            // Fire both a discrete pointing event and begin a pointer-down (press) so user can drag
-            if (onPointingDetected) onPointingDetected();
-            if (!pointerDownRef.current) {
-              pointerDownRef.current = true;
-              if (onPointerDown) onPointerDown();
-            }
-          }
+      if (isPinching) {
+        if (!pointerDownRef.current) {
+          pointerDownRef.current = true;
+          setGestureStatus('🤏 Chọn ảnh!');
+          if (cbRef.current.onPointerDown) cbRef.current.onPointerDown();
         }
       } else {
-        // If pointer was pressed, release it
         if (pointerDownRef.current) {
           pointerDownRef.current = false;
-          if (onPointerUp) onPointerUp();
+          if (cbRef.current.onPointerUp) cbRef.current.onPointerUp();
         }
-        // reset counter to avoid sticky state
+      }
+
+      // === POINTING GESTURE — status display only, no pointer events ===
+      // (pointer events are handled by PINCH above)
+      const idxDx = indexTip.x - indexBase.x;
+      const idxDy = indexTip.y - indexBase.y;
+      const thumbExtended = distThumbTip > distThumbBase * 1.2;
+      const isIndexUp = idxDy < -0.02 && Math.abs(idxDx) < Math.abs(idxDy) * 0.7;
+      const isPointing = indexExtended && extendedFingers === 1 && !thumbExtended && isIndexUp;
+      if (isPointing) {
+        pointingFrames.current++;
+        if (pointingFrames.current >= POINTING_THRESHOLD) {
+          setGestureStatus('👆 Đang trỏ — kẹp ngón cái để chọn');
+          if (cbRef.current.onPointingDetected) cbRef.current.onPointingDetected();
+        }
+      } else {
         pointingFrames.current = 0;
       }
 
@@ -465,12 +498,12 @@ export const GestureController: React.FC<GestureControllerProps> = ({
         setGestureStatus("Detected: OPEN (Unleash)");
 
         // Notify fist detection
-        if (onFistDetected) onFistDetected(false);
+        if (cbRef.current.onFistDetected) cbRef.current.onFistDetected(false);
 
         if (openFrames.current > CONFIDENCE_THRESHOLD) {
           if (lastModeRef.current !== TreeMode.CHAOS) {
             lastModeRef.current = TreeMode.CHAOS;
-            onModeChange(TreeMode.CHAOS);
+            cbRef.current.onModeChange(TreeMode.CHAOS);
           }
         }
 
@@ -482,12 +515,12 @@ export const GestureController: React.FC<GestureControllerProps> = ({
         setGestureStatus("Detected: CLOSED (Restore)");
 
         // Notify fist detection
-        if (onFistDetected) onFistDetected(true);
+        if (cbRef.current.onFistDetected) cbRef.current.onFistDetected(true);
 
         if (closedFrames.current > CONFIDENCE_THRESHOLD) {
           if (lastModeRef.current !== TreeMode.FORMED) {
             lastModeRef.current = TreeMode.FORMED;
-            onModeChange(TreeMode.FORMED);
+            cbRef.current.onModeChange(TreeMode.FORMED);
           }
         }
       } else {
@@ -495,7 +528,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({
         setGestureStatus("Detected: ...");
         openFrames.current = 0;
         closedFrames.current = 0;
-        if (onFistDetected) onFistDetected(false);
+        if (cbRef.current.onFistDetected) cbRef.current.onFistDetected(false);
       }
     };
 
@@ -512,14 +545,25 @@ export const GestureController: React.FC<GestureControllerProps> = ({
     lastModeRef.current = currentMode;
   }, [currentMode]);
 
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
-    <div className="absolute top-6 right-[8%] z-50 flex flex-col items-end pointer-events-none">
+    <div className={`fixed bottom-4 right-3 md:bottom-auto md:top-6 md:right-[8%] flex flex-col-reverse md:flex-col items-end ${isModalOpen ? 'z-[60]' : 'z-50'}`}>
+      {/* Collapse toggle — always clickable */}
+      <button
+        className="mt-1 md:mt-0 md:mb-1 w-7 h-7 rounded-full bg-black/70 border border-[#D4AF37]/50 text-[#D4AF37] text-xs flex items-center justify-center hover:bg-black/90 transition pointer-events-auto"
+        onClick={() => setCollapsed((v) => !v)}
+        aria-label={collapsed ? 'Hiện camera cử chỉ' : 'Ẩn camera cử chỉ'}
+        title={collapsed ? 'Bật camera nhận cử chỉ' : 'Tắt camera'}
+        style={{ lineHeight: 1 }}
+      >
+        {collapsed ? '📷' : '×'}
+      </button>
 
-
-      {/* Camera Preview Frame */}
-      <div className="relative w-[18.75vw] h-[14.0625vw] border-2 border-[#D4AF37] rounded-lg overflow-hidden shadow-[0_0_20px_rgba(212,175,55,0.3)] bg-black">
+      {/* Camera Preview Frame — kept in DOM (CSS hidden) so stream is never lost */}
+      <div className={`relative w-[22vw] h-[16.5vw] md:w-[18.75vw] md:h-[14.0625vw] max-w-[140px] max-h-[105px] border-2 border-[#D4AF37] rounded-lg overflow-hidden shadow-[0_0_20px_rgba(212,175,55,0.3)] bg-black pointer-events-none${collapsed ? ' hidden' : ''}`}>
         {/* Decorative Lines */}
-        <div className="absolute inset-0 border border-[#F5E6BF]/20 m-1 rounded-sm z-10"></div>
+        <div className="absolute inset-0 border border-[#F5E6BF]/20 m-1 rounded-sm z-10" />
 
         <video
           ref={videoRef}
@@ -535,13 +579,6 @@ export const GestureController: React.FC<GestureControllerProps> = ({
           className="absolute inset-0 w-full h-full object-cover transform -scale-x-100 pointer-events-none z-20"
         />
 
-        {/* Hand Position Debug */}
-        {/* {handPos && (
-          <div className="absolute top-2 left-2 text-[10px] text-[#D4AF37] bg-black/70 px-2 py-1 rounded font-mono">
-            X: {handPos.x.toFixed(2)} Y: {handPos.y.toFixed(2)}
-          </div>
-        )} */}
-
         {/* Hand Position Indicator */}
         {handPos && (
           <div
@@ -553,7 +590,6 @@ export const GestureController: React.FC<GestureControllerProps> = ({
             }}
           />
         )}
-
       </div>
     </div>
   );

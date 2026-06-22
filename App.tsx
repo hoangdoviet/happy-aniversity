@@ -1,177 +1,192 @@
-import React, { useState, Suspense, useEffect } from 'react';
+import React, { useState, Suspense, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Loader } from '@react-three/drei';
-import { Experience } from './components/Experience';
-import { UIOverlay } from './components/UIOverlay';
+import { AnniversaryScene } from './components/AnniversaryScene';
+import { MonthOverlay } from './components/MonthOverlay';
+import { AdminPanel } from './components/AdminPanel';
 import { GestureController } from './components/GestureController';
-import { TreeMode } from './types';
-import { MusicPlayer } from './components/MusicPlayer';
-import { loadMediaFilesFromManifest, MediaFile } from './utils/mediaLoader';
+import { HandCursor } from './components/HandCursor';
 import { MediaModal } from './components/MediaModal';
-import { SecretModal } from './components/SecretModal';
-import { HeartSecretModal } from './components/HeartSecretModal';
 import { GestureConfirmPopup } from './components/GestureConfirmPopup';
 import { GestureGuide } from './components/GestureGuide';
-import { HandCursor } from './components/HandCursor';
+import { SeasonalOverlay } from './components/SeasonalOverlay';
+import { SceneState, TreeMode } from './types';
+import { OrbitMediaFile } from './components/MediaOrbit';
+import { getMonthMedia, getHeartMedia, fetchConfig, defaultAnniversaryConfig } from './utils/anniversaryConfig';
+import { AnniversaryConfig } from './types';
 
 // Simple Error Boundary to catch 3D resource loading errors (like textures)
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; message?: string; stack?: string }> {
+// ── Simple routing ─────────────────────────────────────────────────────────
+function isAdminRoute() {
+  return (
+    window.location.pathname === '/admin' ||
+    window.location.hash === '#admin' ||
+    window.location.search.includes('admin=1')
+  );
+}
+
+// ── Error boundary ─────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; message?: string }
+> {
   constructor(props: any) {
     super(props);
     this.state = { hasError: false };
   }
-
   static getDerivedStateFromError(error: any) {
     return { hasError: true, message: error?.message };
   }
-
-  componentDidCatch(error: any, errorInfo: any) {
-    console.error("Error loading 3D scene:", error, errorInfo);
-    this.setState({ message: error?.message, stack: errorInfo?.componentStack });
+  componentDidCatch(error: any, info: any) {
+    console.error('3D scene error:', error, info);
   }
-
   render() {
     if (this.state.hasError) {
-      // You can customize this fallback UI
       return (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 text-[#D4AF37] font-serif p-6 text-center">
-          <div className="max-w-2xl">
-            <h2 className="text-2xl mb-2">Something went wrong</h2>
-            <p className="opacity-70 mb-4">A resource failed to load (likely a missing image or texture). Check the console for details.</p>
-            {this.state.message && (
-              <details className="text-left bg-black/30 p-3 rounded mb-3">
-                <summary className="cursor-pointer font-semibold">Error details (click to expand)</summary>
-                <pre className="text-xs text-left mt-2 whitespace-pre-wrap">{this.state.message}</pre>
-                {this.state.stack && <pre className="text-xs mt-2 whitespace-pre-wrap">{this.state.stack}</pre>}
-              </details>
-            )}
-            <div className="flex justify-center gap-3">
-              <button
-                onClick={() => this.setState({ hasError: false, message: undefined, stack: undefined })}
-                className="px-4 py-2 border border-[#D4AF37] hover:bg-[#D4AF37] hover:text-black transition-colors rounded"
-              >
-                Try Again
-              </button>
-              <button
-                onClick={() => window.open('https://github.com/hoangdoviet/Chrismas/issues/new', '_blank')}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:opacity-90"
-              >
-                Report Issue
-              </button>
-            </div>
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 text-pink-300 p-8 text-center">
+          <div>
+            <h2 className="text-2xl mb-3">Lỗi tải cảnh 3D</h2>
+            <p className="opacity-70 mb-4">{this.state.message}</p>
+            <button
+              onClick={() => this.setState({ hasError: false })}
+              className="px-4 py-2 border border-pink-500 rounded-lg hover:bg-pink-500/20 transition"
+            >
+              Thử lại
+            </button>
           </div>
         </div>
       );
     }
-
     return this.props.children;
   }
 }
 
-export default function App() {
-  const [mode, setMode] = useState<TreeMode>(TreeMode.FORMED);
-  const [handPosition, setHandPosition] = useState<{ x: number; y: number; detected: boolean }>({ x: 0.5, y: 0.5, detected: false });
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
-  const [twoHandsDetected, setTwoHandsDetected] = useState(false);
-  const [closestMedia, setClosestMedia] = useState<MediaFile | null>(null);
-  const [showThumbsUpSecret, setShowThumbsUpSecret] = useState(false);
-  const [showHeartSecret, setShowHeartSecret] = useState(false);
-  const [isFistDetected, setIsFistDetected] = useState(false);
-  const [hoveredMedia, setHoveredMedia] = useState<MediaFile | null>(null);
-  const [cursor, setCursor] = useState<{ x: number; y: number; detected: boolean }>({ x: 0.5, y: 0.5, detected: false });
-  const [cursorPressed, setCursorPressed] = useState(false);
+// ── Main anniversary experience ───────────────────────────────────────────────
 
-  // Gesture confirmation states
+function AnniversaryApp() {
+  // Config — loaded from /config.json (shared across all devices) on mount
+  const [config, setConfig] = useState<AnniversaryConfig>(defaultAnniversaryConfig);
+
+  // currentMonth: 1–12 during months, 0 for heart
+  const [currentMonth, setCurrentMonth] = useState(1);
+  const [mode, setMode] = useState<SceneState>(SceneState.FORMED);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [mediaFiles, setMediaFiles] = useState<OrbitMediaFile[]>([]);
+
+  // Media navigation: index-based (null = modal closed)
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState<number | null>(null);
+  const currentMedia = selectedMediaIndex !== null ? mediaFiles[selectedMediaIndex] ?? null : null;
+
+  // Hand / gesture state
+  const [handPosition, setHandPosition] = useState({ x: 0.5, y: 0.5, detected: false });
+  const [cursor, setCursor] = useState({ x: 0.5, y: 0.5, detected: false });
+  const [cursorPressed, setCursorPressed] = useState(false);
+  // Always-current cursor ref — prevents stale closures in pointer-press effect
+  const cursorRef = useRef(cursor);
+  useEffect(() => { cursorRef.current = cursor; });
+
+  // Touch swipe tracking (mobile)
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Gesture swipe tracking for modal (velocity-based)
+  const swipeTrackRef = useRef<{ x: number; time: number } | null>(null);
+  const swipeLockRef = useRef(0);
+  const swipeYTrackRef = useRef<{ y: number; time: number } | null>(null);
+  const swipeYLockRef = useRef(0);
+
+  // Gesture confirm popups
   const [showThumbsUpConfirm, setShowThumbsUpConfirm] = useState(false);
   const [thumbsUpProgress, setThumbsUpProgress] = useState(0);
   const [showHeartConfirm, setShowHeartConfirm] = useState(false);
   const [heartProgress, setHeartProgress] = useState(0);
 
-  // Load media files from public/photos on mount
+  // Music
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ── Load media for current month ──────────────────────────────────────────
+
+  // On mount: fetch config from /config.json so all devices see the same setup
   useEffect(() => {
-    loadMediaFilesFromManifest().then(files => {
-      console.log('Loaded media files:', files);
-      setMediaFiles(files);
-    });
+    fetchConfig().then(setConfig);
   }, []);
 
-  const toggleMode = () => {
-    setMode((prev) => (prev === TreeMode.FORMED ? TreeMode.CHAOS : TreeMode.FORMED));
-  };
+  // Reload when window regains focus (e.g. after saving in another tab / admin panel)
+  useEffect(() => {
+    const onFocus = () => { fetchConfig().then(setConfig); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
-  const handleHandPosition = (x: number, y: number, detected: boolean) => {
-    setHandPosition({ x, y, detected });
-  };
+  useEffect(() => {
+    const isHeart = currentMonth === 0;
+    const raw = isHeart ? getHeartMedia(config) : getMonthMedia(config, currentMonth);
 
-  const handleTwoHandsDetected = (detected: boolean) => {
-    setTwoHandsDetected(detected);
-  };
+    const files: OrbitMediaFile[] = [
+      ...raw.photos.map((url) => ({ url, type: 'image' as const, filename: url.split('/').pop()! })),
+      ...raw.videos.map((url) => ({ url, type: 'video' as const, filename: url.split('/').pop()! })),
+    ];
+    setMediaFiles(files);
+    setSelectedMediaIndex(null); // close any open modal on month change
 
-  const handleClosestMediaChange = (media: MediaFile | null) => {
-    // Only set closestMedia when triggered by click, not by two-hand detection
-    if (media) {
-      setClosestMedia(media);
+    // Update music
+    if (!audioRef.current) audioRef.current = new Audio();
+    const audio = audioRef.current;
+    if (raw.music) {
+      audio.src = raw.music;
+      audio.loop = true;
+      audio.volume = 0.45;
+      audio.play().catch(() => { /* autoplay blocked */ });
+    } else {
+      audio.pause();
     }
-  };
+  }, [currentMonth, config]);
 
-  const handleQuickThumbsUp = () => {
-    // When user does quick thumbs up (1s), open the first/random photo
-    // In Chaos mode, we can open a random photo or the first one
-    if (mediaFiles.length > 0 && mode === TreeMode.CHAOS) {
-      // Pick a random photo to show
-      const randomIndex = Math.floor(Math.random() * mediaFiles.length);
-      setClosestMedia(mediaFiles[randomIndex]);
-    }
-  };
+  // ── Month transitions ──────────────────────────────────────────────────────
 
-  const handlePointing = () => {
-    // When user points (index finger), open the hovered photo
-    if (hoveredMedia && mode === TreeMode.CHAOS) {
-      setClosestMedia(hoveredMedia);
-    }
-  };
+  const handleNextMonth = useCallback(() => {
+    if (isTransitioning) return;
+    setIsTransitioning(true);
+    setMode(SceneState.CHAOS);
 
-  const handleHoveredMediaChange = (media: MediaFile | null) => {
-    setHoveredMedia(media);
-  };
+    setTimeout(() => {
+      const next = currentMonth === 0
+        ? 1                       // heart → restart
+        : currentMonth === 12
+          ? 0                     // month 12 → heart
+          : currentMonth + 1;
+      setCurrentMonth(next);
+      setMode(SceneState.FORMED);
+      setIsTransitioning(false);
+    }, 1800);
+  }, [currentMonth, isTransitioning]);
 
-  const handleCursorMove = (x: number, y: number, detected: boolean) => {
-    setCursor({ x, y, detected });
-  };
+  const handleToggleMode = () =>
+    setMode((prev) => prev === SceneState.FORMED ? SceneState.CHAOS : SceneState.FORMED);
 
-  const handlePointerDown = () => setCursorPressed(true);
-  const handlePointerUp = () => setCursorPressed(false);
+  // ── Gesture callbacks ──────────────────────────────────────────────────────
+
+  const handleModeChange = useCallback((treeMode: TreeMode) => {
+    setMode(treeMode === TreeMode.FORMED ? SceneState.FORMED : SceneState.CHAOS);
+  }, []);
 
   const handleThumbsUpProgress = (progress: number) => {
     setThumbsUpProgress(progress);
-    if (progress > 0 && !showThumbsUpConfirm) {
-      setShowThumbsUpConfirm(true);
-    } else if (progress === 0 && showThumbsUpConfirm) {
-      setShowThumbsUpConfirm(false);
-    }
+    setShowThumbsUpConfirm(progress > 0);
   };
-
-  const handleThumbsUpComplete = () => {
+  const handleThumbsUpComplete = useCallback(() => {
     setShowThumbsUpConfirm(false);
     setThumbsUpProgress(0);
-    setShowThumbsUpSecret(true);
-  };
+    handleNextMonth();
+  }, [handleNextMonth]);
 
   const handleHeartProgress = (progress: number) => {
     setHeartProgress(progress);
-    if (progress > 0 && !showHeartConfirm) {
-      setShowHeartConfirm(true);
-    } else if (progress === 0 && showHeartConfirm) {
-      setShowHeartConfirm(false);
-    }
+    setShowHeartConfirm(progress > 0);
   };
-
   const handleHeartComplete = () => {
     setShowHeartConfirm(false);
     setHeartProgress(0);
-    setShowHeartSecret(true);
   };
-
   const handleCancelGesture = () => {
     setShowThumbsUpConfirm(false);
     setShowHeartConfirm(false);
@@ -179,80 +194,237 @@ export default function App() {
     setHeartProgress(0);
   };
 
-  // Handle ESC key to close modals
+  // ── Media navigation ───────────────────────────────────────────────────────
+
+  const handleMediaClick = useCallback((file: OrbitMediaFile) => {
+    const idx = mediaFiles.findIndex((f) => f.url === file.url);
+    setSelectedMediaIndex(idx >= 0 ? idx : 0);
+  }, [mediaFiles]);
+
+  const handlePrevMedia = useCallback(() => {
+    if (mediaFiles.length === 0) return;
+    setSelectedMediaIndex((prev) =>
+      prev === null ? 0 : (prev - 1 + mediaFiles.length) % mediaFiles.length,
+    );
+  }, [mediaFiles.length]);
+
+  const handleNextMedia = useCallback(() => {
+    if (mediaFiles.length === 0) return;
+    setSelectedMediaIndex((prev) =>
+      prev === null ? 0 : (prev + 1) % mediaFiles.length,
+    );
+  }, [mediaFiles.length]);
+
+  // ── Gesture cursor → synthetic pointer events on the 3D canvas ────────────
+  // NOTE: webcam x is mirrored — use (1 - cursor.x) for correct screen position
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    if (!cursor.detected) return;
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    // Mirror-correct: (1 - cursor.x) maps camera-left → screen-right
+    canvas.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: (1 - cursor.x) * rect.width + rect.left,
+      clientY: cursor.y * rect.height + rect.top,
+      bubbles: true, pointerType: 'mouse', isPrimary: true,
+    }));
+  }, [cursor.x, cursor.y, cursor.detected]);
+
+  // ── Gesture swipe detection for modal navigation (no button needed) ────────
+  useEffect(() => {
+    if (!cursor.detected || selectedMediaIndex === null) {
+      swipeTrackRef.current = null;
+      return;
+    }
+    const now = Date.now();
+    const track = swipeTrackRef.current;
+    if (!track) {
+      swipeTrackRef.current = { x: cursor.x, time: now };
+      return;
+    }
+    const dx = cursor.x - track.x;
+    const dt = now - track.time;
+    if (Math.abs(dx) > 0.22 && dt < 600 && now > swipeLockRef.current) {
+      // camera space: +dx = hand moves right = screen LEFT swipe = NEXT
+      // camera space: -dx = hand moves left  = screen RIGHT swipe = PREV
+      swipeLockRef.current = now + 1400;
+      swipeTrackRef.current = null;
+      if (dx > 0) handleNextMedia();
+      else handlePrevMedia();
+    } else if (dt > 600) {
+      swipeTrackRef.current = { x: cursor.x, time: now };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor.x, cursor.detected, selectedMediaIndex]);
+
+  // ── Gesture swipe-up to close modal ──────────────────────────────────────
+  useEffect(() => {
+    if (!cursor.detected || selectedMediaIndex === null) {
+      swipeYTrackRef.current = null;
+      return;
+    }
+    const now = Date.now();
+    const track = swipeYTrackRef.current;
+    if (!track) {
+      swipeYTrackRef.current = { y: cursor.y, time: now };
+      return;
+    }
+    const dy = cursor.y - track.y;
+    const dt = now - track.time;
+    // dy < -0.28: cursor.y decreased quickly = hand moved UP = swipe-up to close
+    if (dy < -0.28 && dt < 700 && now > swipeYLockRef.current) {
+      swipeYLockRef.current = now + 1500;
+      swipeYTrackRef.current = null;
+      setSelectedMediaIndex(null);
+    } else if (dt > 600) {
+      swipeYTrackRef.current = { y: cursor.y, time: now };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor.y, cursor.detected, selectedMediaIndex]);
+
+  // Cursor press → click on canvas OR navigate modal
+  const prevPressedRef = useRef(false);
+  useEffect(() => {
+    if (!cursorPressed || prevPressedRef.current) {
+      prevPressedRef.current = cursorPressed;
+      return;
+    }
+    prevPressedRef.current = cursorPressed;
+
+    // If modal is open, use cursor X position for navigation
+    if (selectedMediaIndex !== null && mediaFiles.length > 0) {
+      if (cursor.x < 0.25) { handlePrevMedia(); return; }
+      if (cursor.x > 0.75) { handleNextMedia(); return; }
+      if (cursor.x > 0.35 && cursor.x < 0.65) { setSelectedMediaIndex(null); return; }
+      return;
+    }
+
+    // Otherwise fire a canvas click so polaroids respond
+    // Use cursorRef for always-current coordinates (avoid stale closure)
+    const cur = cursorRef.current;
+    if (!cur.detected) return;
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    // Mirror-correct: (1 - cursor.x)
+    canvas.dispatchEvent(new PointerEvent('click', {
+      clientX: (1 - cur.x) * rect.width + rect.left,
+      clientY: cur.y * rect.height + rect.top,
+      bubbles: true, pointerType: 'mouse', isPrimary: true,
+    } as PointerEventInit));
+  }, [cursorPressed]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (showThumbsUpSecret) {
-          setShowThumbsUpSecret(false);
-        } else if (showHeartSecret) {
-          setShowHeartSecret(false);
-        } else if (showThumbsUpConfirm || showHeartConfirm) {
-          handleCancelGesture();
-        } else if (closestMedia) {
-          setClosestMedia(null);
-        }
+        if (selectedMediaIndex !== null) setSelectedMediaIndex(null);
+        else handleCancelGesture();
       }
+      if (e.key === 'ArrowLeft' && selectedMediaIndex !== null) handlePrevMedia();
+      if (e.key === 'ArrowRight' && selectedMediaIndex !== null) handleNextMedia();
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closestMedia, showThumbsUpSecret, showHeartSecret, showThumbsUpConfirm, showHeartConfirm]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedMediaIndex, handlePrevMedia, handleNextMedia]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  const monthCfg = currentMonth > 0
+    ? config.months.find((m) => m.month === currentMonth)
+    : null;
+
+  // ── Mobile touch swipe handlers ──────────────────────────────────────────
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartRef.current.x;
+    const dy = t.clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
+
+    if (selectedMediaIndex !== null) {
+      // Modal: horizontal swipe → prev/next, vertical up → close
+      if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        if (dx < 0) handleNextMedia();
+        else handlePrevMedia();
+      } else if (dy < -70 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+        setSelectedMediaIndex(null);
+      }
+    }
+    // Scene swipe-up to change month is intentionally disabled
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMediaIndex, handleNextMedia, handlePrevMedia, handleNextMonth]);
 
   return (
-    <div className="w-full h-screen relative overflow-hidden">
+    <div
+      className="w-full relative overflow-hidden"
+      style={{
+        height: '100dvh',   // dynamic viewport height: excludes iOS address bar
+        background: 'radial-gradient(ellipse at center, #130020 0%, #050008 100%)'
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       <ErrorBoundary>
         <Canvas
-          camera={{ position: [0, 5, 15], fov: 50 }}
+          camera={{ position: [0, 4, 20], fov: 50 }}
           gl={{ antialias: true, alpha: false }}
           dpr={[1, 2]}
         >
           <Suspense fallback={null}>
-            <Experience
+            <AnniversaryScene
+              currentMonth={currentMonth}
               mode={mode}
               handPosition={handPosition}
               mediaFiles={mediaFiles}
-              twoHandsDetected={twoHandsDetected}
-              onClosestMediaChange={handleClosestMediaChange}
-              cursorPosition={cursor}
-              isFistDetected={isFistDetected}
-              onHoveredMediaChange={handleHoveredMediaChange}
+              onMediaClick={handleMediaClick}
             />
           </Suspense>
         </Canvas>
       </ErrorBoundary>
 
       <Loader
-        containerStyles={{ background: '#000' }}
-        innerStyles={{ width: '300px', height: '10px', background: '#333' }}
-        barStyles={{ background: '#D4AF37', height: '10px' }}
-        dataStyles={{ color: '#D4AF37', fontFamily: 'Cinzel' }}
+        containerStyles={{ background: 'transparent' }}
+        innerStyles={{ width: '280px', height: '4px', background: '#330033' }}
+        barStyles={{ background: '#FF69B4', height: '4px' }}
+        dataStyles={{ color: '#FFB6C1', fontFamily: 'serif' }}
       />
 
-      <UIOverlay
+      {/* Seasonal particle effects (Spring/Summer/Autumn/Winter) */}
+      <SeasonalOverlay currentMonth={currentMonth} />
+
+      <MonthOverlay
+        currentMonth={currentMonth}
+        monthTitle={monthCfg?.title ?? (currentMonth === 0 ? '❤️ 1 Năm Yêu Nhau' : `Tháng ${currentMonth}`)}
+        monthDescription={monthCfg?.description ?? ''}
         mode={mode}
-        onToggle={toggleMode}
+        onNextMonth={handleNextMonth}
+        onToggleMode={handleToggleMode}
+        coupleNames={config.coupleNames}
+        isTransitioning={isTransitioning}
       />
 
-      {/* Gesture Control Module */}
       <GestureController
-        currentMode={mode}
-        onModeChange={setMode}
-        onHandPosition={handleHandPosition}
-        onTwoHandsDetected={handleTwoHandsDetected}
+        currentMode={mode === SceneState.FORMED ? TreeMode.FORMED : TreeMode.CHAOS}
+        onModeChange={handleModeChange}
+        onHandPosition={(x, y, d) => setHandPosition({ x, y, detected: d })}
         onThumbsUpDetected={handleThumbsUpComplete}
         onThumbsUpProgress={handleThumbsUpProgress}
         onHeartDetected={handleHeartComplete}
         onHeartProgress={handleHeartProgress}
-        onFistDetected={setIsFistDetected}
-        onQuickThumbsUp={handleQuickThumbsUp}
-        onPointingDetected={handlePointing}
-        onCursorMove={handleCursorMove}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
+        onFistDetected={() => { }}
+        onCursorMove={(x, y, d) => setCursor({ x, y, detected: d })}
+        onPointerDown={() => setCursorPressed(true)}
+        onPointerUp={() => setCursorPressed(false)}
+        isModalOpen={selectedMediaIndex !== null}
       />
 
-      {/* Gesture Confirmation Popups */}
-      {showThumbsUpConfirm && !showThumbsUpSecret && !showHeartSecret && (
+      {showThumbsUpConfirm && (
         <GestureConfirmPopup
           gestureType="thumbsup"
           progress={thumbsUpProgress}
@@ -260,8 +432,7 @@ export default function App() {
           onCancel={handleCancelGesture}
         />
       )}
-
-      {showHeartConfirm && !showThumbsUpSecret && !showHeartSecret && (
+      {showHeartConfirm && (
         <GestureConfirmPopup
           gestureType="heart"
           progress={heartProgress}
@@ -270,39 +441,57 @@ export default function App() {
         />
       )}
 
-      {/* Media Preview Modal - Shows when user clicks on polaroid */}
-      {closestMedia && !showThumbsUpSecret && !showHeartSecret && !showThumbsUpConfirm && !showHeartConfirm && (
+      {currentMedia && !showThumbsUpConfirm && !showHeartConfirm && (
         <MediaModal
-          media={closestMedia}
-          onClose={() => setClosestMedia(null)}
+          media={currentMedia}
+          allMedia={mediaFiles}
+          currentIndex={selectedMediaIndex!}
+          onClose={() => setSelectedMediaIndex(null)}
+          onPrev={handlePrevMedia}
+          onNext={handleNextMedia}
         />
       )}
 
-      {/* Thumbs Up Secret Modal */}
-      {showThumbsUpSecret && (
-        <SecretModal
-          onClose={() => setShowThumbsUpSecret(false)}
-        />
-      )}
-
-      {/* Heart Secret Modal */}
-      {showHeartSecret && (
-        <HeartSecretModal
-          onClose={() => setShowHeartSecret(false)}
-          handPosition={handPosition}
-          isFistDetected={isFistDetected}
-        />
-      )}
-
-      {/* 🎵 Music Player */}
-      <MusicPlayer />
-
-      {/* Gesture Guide */}
       <GestureGuide />
-
-      {/* Hand-following cursor for pointer interactions */}
       <HandCursor x={cursor.x} y={cursor.y} detected={cursor.detected} pointerDown={cursorPressed} />
 
+      {/* Tiny admin link */}
+      <a
+        href="/admin"
+        className="fixed top-3 right-3 text-xs text-pink-900/30 hover:text-pink-500 transition z-50"
+      >
+        ⚙
+      </a>
     </div>
   );
+}
+
+// ── Root with simple routing ───────────────────────────────────────────────────
+
+export default function App() {
+  const [page, setPage] = useState<'main' | 'admin'>(() =>
+    isAdminRoute() ? 'admin' : 'main'
+  );
+
+  useEffect(() => {
+    const onPop = () => setPage(isAdminRoute() ? 'admin' : 'main');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest('a[href="/admin"]');
+      if (anchor) {
+        e.preventDefault();
+        window.history.pushState({}, '', '/admin');
+        setPage('admin');
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
+  if (page === 'admin') return <AdminPanel />;
+  return <AnniversaryApp />;
 }

@@ -1,114 +1,151 @@
-# 🎄 Cây Giáng Sinh
+﻿# 💕 Kỉ Niệm 1 Năm
 
-Một trải nghiệm cây thông Noel 3D sống động, độ trung thực cao với điều khiển bằng cử chỉ tay, lắp ráp động từ hỗn loạn sang trật tự, và phong cách thẩm mỹ sang trọng với màu xanh lục bảo và vàng kim.
+Trải nghiệm 3D tương tác kỷ niệm 1 năm yêu nhau — 12 tháng hiển thị bằng hạt 3D rực rỡ, ảnh/video bay quanh, điều khiển bằng cử chỉ tay.
 
-## 📝 Prompt
+---
 
-Gemini 3 trong Google AI Studio và Claude 4.5 Sonnet trong Cursor:
+## Tính năng nổi bật
+
+| Tính năng | Mô tả |
+|---|---|
+| **12 tháng to trai tim** | Chu so 3D tao tu 10,000 hat, chuyen sang trai tim 3D luc ket thuc |
+| **Anh / video bay quanh** | Polaroid bay quy dao quanh so thang, chon de xem toan man hinh |
+| **Nhan dien cu chi tay** | Ban tay mo = hon loan, nam dau = hoi tu, tro = chon anh |
+| **Nhac nen** | Moi thang co the co nhac rieng |
+| **Admin panel** | Giao dien quan ly tai `/admin` - tai anh/video/nhac, cau hinh tung thang |
+
+---
+
+## Cai dat & Chay
+
+### Yeu cau
+
+- Node.js 18+
+- npm / pnpm
+
+### Cac buoc
+
+```bash
+# 1. Cai dependencies
+npm install
+
+# 2. Tai model MediaPipe cho nhan dien ban tay
+npm run download-model
+
+# 3. Chay dev server
+npm run dev
+# Mo http://localhost:3010
+```
+
+> **Luu y:** Upload anh/video chi hoat dong khi chay `npm run dev` (Vite dev server middleware).
+
+---
+
+## Admin Panel
+
+Truy cap: **http://localhost:3010/admin**
+Dang nhap: `admin` / `nhiphoi00`
+
+### Tai anh
+
+- Keo tha file anh vao vung dashed hoac nhan "Tai len"
+- Anh hien thi ngay dang thumbnail grid
+- Click vao thumbnail de chon/bo chon
+- Hover thumbnail xuat hien nut x de xoa
+
+### Tai video
+
+- Tuong tu anh, hover de preview video tu play
+
+### Tai nhac
+
+- Nhan "Tai nhac moi" de upload mp3/m4a/wav
+- Nhan play (tam giac) de nghe thu
+- Click ten track de chon lam nhac nen
+
+### Luu cau hinh
+
+Nhan **Luu cau hinh** de luu vao localStorage.
+
+---
+
+## Giao dien chinh
+
+### Dieu huong thang
+
+| Hanh dong | Ket qua |
+|---|---|
+| Nhan nut "Thang X" | Chuyen sang thang tiep theo |
+| Du 12 thang | Hien thi man hinh trai tim |
+| Nhan "Xem lai tu dau" | Quay lai Thang 1 |
+
+### Cu chi tay (yeu cau camera)
+
+| Cu chi | Hanh dong |
+|---|---|
+| Mo ban tay | Che do HON LOAN - hat/anh bay tan loan |
+| Nam dau | Hoi tu lai - hat tao thanh so, anh quay ve quy dao |
+| Gio ngon cai (giu 1.5s) | Chuyen thang tiep theo |
+| Cu chi trai tim (giu 1.5s) | Chuyen sang man hinh ket |
+| Tro ngon tro | Di chuyen con tro - chon anh polaroid |
+
+### Navigation modal bang tay
+
+- Tro + bam vung trai 25% man hinh → anh truoc
+- Tro + bam vung phai 25% man hinh → anh sau
+- Tro + bam vung giua → dong modal
+
+---
+
+## Cau truc thu muc
 
 ```
-Vai trò: Bạn là chuyên gia phát triển sáng tạo 3D thành thạo React 19, TypeScript và Three.js (R3F).
-Mục tiêu: Xây dựng một ứng dụng web 3D độ trung thực cao có tên "Cây Giáng Sinh Tương Tác Sang Trọng". Phong cách hình ảnh cần thể hiện sự sang trọng "kiểu Trump", với tông màu chính là xanh lục bảo đậm và vàng kim nổi bật, kèm theo hiệu ứng tỏa sáng đẳng cấp điện ảnh.
-Ngăn xếp công nghệ: React 19, TypeScript, React Three Fiber, Drei, Postprocessing, Tailwind CSS.
-
-Logic và kiến trúc lõi:
-Máy trạng thái: Bao gồm hai trạng thái CHAOS (hỗn loạn, rải rác) và FORMED (hợp thành cây), với sự biến hình động giữa hai trạng thái.
-Hệ thống tọa độ kép (Dual-Position System): Tất cả các phần tử (lá kim, đồ trang trí) khi khởi tạo cần được phân bổ hai tọa độ:
-  ChaosPosition: Tọa độ ngẫu nhiên trong không gian hình cầu.
-  TargetPosition: Tọa độ mục tiêu tạo thành hình nón của cây.
-TargetPosition: Tọa độ mục tiêu tạo thành hình nón của cây.
-Trong useFrame, thực hiện phép nội suy (Lerp) giữa hai tọa độ dựa trên tiến trình.
-Chi tiết triển khai:
-Hệ thống lá kim (Foliage): Sử dụng THREE.Points và ShaderMaterial tùy chỉnh để render một lượng lớn hạt.
-Đồ trang trí (Ornaments): Sử dụng InstancedMesh để tối ưu hóa render. Chia thành các hộp quà nhiều màu (nặng), các quả cầu nhiều màu (nhẹ), các đèn điểm xuyết (cực nhẹ), gán trọng số lực vật lý khác nhau. Sử dụng Lerp để tạo hiệu ứng hoạt hình trở về vị trí mượt mà.
-Xử lý hậu kỳ: Kích hoạt hiệu ứng Bloom (ngưỡng 0.8, cường độ 1.2), tạo "quầng sáng vàng kim".
-
-Cấu hình cảnh:
-Vị trí camera [0, 4, 20], sử dụng ánh sáng môi trường Lobby HDRI.
-Thêm nhiều đồ trang trí là ảnh kiểu máy ảnh lấy liền (polaroid).
-Sử dụng phát hiện cử chỉ tay từ hình ảnh camera, bàn tay mở đại diện cho unleash (giải phóng hỗn loạn), nắm lại thì trở về cây thông. Di chuyển tay có thể điều chỉnh góc nhìn.
+HappyAniversity/
+├── public/
+│   ├── photos/          # anh tai len qua admin
+│   ├── videos/          # video tai len qua admin
+│   ├── music/           # nhac tai len qua admin
+│   └── models/          # model MediaPipe
+├── components/
+│   ├── AnniversaryScene.tsx
+│   ├── NumberParticles.tsx
+│   ├── HeartParticles.tsx
+│   ├── MediaOrbit.tsx
+│   ├── MediaModal.tsx
+│   ├── MonthOverlay.tsx
+│   ├── GestureController.tsx
+│   └── AdminPanel.tsx
+├── utils/
+│   ├── anniversaryConfig.ts
+│   └── numberPositions.ts
+├── vite-plugin-upload.ts
+├── App.tsx
+└── types.ts
 ```
 
-## 🛠️ Installation
+---
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd grand-luxury-interactive-christmas-tree
-   ```
+## Stack ky thuat
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+| Thu vien | Phien ban | Muc dich |
+|---|---|---|
+| React | 19 | UI framework |
+| Vite | 6 | Build tool |
+| Three.js + R3F | 0.181 + 9 | Rendering 3D |
+| @mediapipe/tasks-vision | 0.10.3 | Nhan dien ban tay |
+| Tailwind CSS | CDN | Styling |
+| Google Fonts: Be Vietnam Pro | CDN | Font ho tro tieng Viet |
 
-3. **Run the development server:**
-   ```bash
-   npm run dev
-   ```
+---
 
+## Ghi chu ky thuat
 
+- Config luu o `localStorage` key `anniversary_v1_config`
+- Manifest cho tung loai media: `public/{photos|videos|music}/manifest.json`
+- GLSL shaders: hat dung vertex shader voi easing cubicInOut, blending additive
+- Gesture cursor: vi tri ngon tro inject dang PointerEvent vao canvas Three.js
+- Chi chay dung tren Vite dev server - upload khong hoat dong tren hosting tinh
 
-## 🎯 Usage
+---
 
-### Photo Upload & Sharing
-
-1. **Upload Photos:**
-   - Click "上传照片" button to select up to 22 images
-   - Photos will appear as polaroids on the Christmas tree
-
-2. **Generate Share Link:**
-   - After uploading photos, click "生成分享链接"
-   - Wait 2-3 seconds for the upload to complete
-   - Copy the generated link and share with friends
-
-3. **View Shared Photos:**
-   - Friends can open the share link in any browser
-   - Photos will automatically load on the Christmas tree
-   - No login or app installation required
-   - Links expire after 30 days
-
-### Gesture Controls
-
-1. **Position your hand** in front of the webcam (visible in top-right preview)
-2. **Move your hand** to control the camera angle:
-   - Left/Right: Horizontal rotation
-   - Up/Down: Vertical tilt
-3. **Open your hand** (spread all fingers): Unleash chaos mode
-4. **Close your fist**: Restore tree to formed mode
-
-### Mouse Controls
-
-When no hand is detected, you can:
-- **Click and drag** to rotate the view
-- **Scroll** to zoom in/out
-- **Right-click and drag** to pan (disabled by default)
-
-## 🏗️ Tech Stack
-
-### Frontend
-- React 19 with TypeScript
-- React Three Fiber (R3F) for 3D rendering
-- Three.js for WebGL graphics
-- @react-three/drei for helpers
-- @react-three/postprocessing for visual effects
-- MediaPipe for hand gesture detection
-- Tailwind CSS for styling
-
-### Backend (Photo Sharing)
-- Vercel Serverless Functions
-- Cloudflare R2 (S3-compatible object storage)
-- Cloudflare KV (key-value storage)
-- AWS SDK S3 Client for R2 integration
-
-### Features
-- Hand gesture control via webcam
-- Dynamic state transitions (CHAOS ↔ FORMED)
-- Photo upload and cloud sharing
-- Temporary share links (30-day expiration)
-- Instanced rendering for performance
-- Bloom and post-processing effects
-
-## 🎅 Happy Holidays!
-
-May your code be merry and bright! 🎄✨
+*Duoc tao bang tinh yeu*

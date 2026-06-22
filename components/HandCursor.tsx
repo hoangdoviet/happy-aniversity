@@ -67,7 +67,7 @@ export const HandCursor: React.FC<HandCursorProps> = ({ x, y, detected, pointerD
             style={{
                 left: '50%',
                 top: '50%',
-                transition: 'left 0.06s linear, top 0.06s linear',
+                transition: 'left 0.1s ease-out, top 0.1s ease-out',
                 width: 24,
                 height: 24
             }}

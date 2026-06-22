@@ -1,0 +1,49 @@
+/*
+ * index.css — required by index.html
+ * Body/HTML base styles are already in the <style> block in index.html.
+ * This file just ensures #root fills the viewport and sets a serif stack
+ * that matches the Google Fonts imported in index.html.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #050008;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+}
+
+/* Elegant heading class used by MonthOverlay */
+.font-heading {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+/* Scrollbar – thin, pink-tinted for admin panel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #7b2d5a55;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c2587a99;
+}
