@@ -18,6 +18,7 @@ export function defaultAnniversaryConfig(): AnniversaryConfig {
     coupleNames: 'Nhíp & Quỳnh Anh',
     months: Array.from({ length: 12 }, (_, i) => defaultMonthConfig(i + 1)),
     heartMusic: null,
+    globalMusic: [],
   };
 }
 
@@ -38,6 +39,7 @@ export function getConfig(): AnniversaryConfig {
         ...defaultAnniversaryConfig(),
         ...parsed,
         months,
+        globalMusic: parsed.globalMusic || [],
       };
     }
   } catch (e) {
@@ -87,6 +89,7 @@ export async function fetchConfig(): Promise<AnniversaryConfig> {
         ...defaultAnniversaryConfig(),
         ...parsed,
         months,
+        globalMusic: parsed.globalMusic || [],
       };
       // Hydrate localStorage cache so same-device getConfig() is consistent
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config)); } catch { /* quota */ }

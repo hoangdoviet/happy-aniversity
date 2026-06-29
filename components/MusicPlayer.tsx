@@ -1,60 +1,68 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Music } from 'lucide-react';
 
-interface Song {
-  title: string;
-  artist: string;
-  src: string;
-  cover: string;
+interface MusicPlayerProps {
+  playlist: string[]; // relative paths or filenames, e.g. ["song1.mp3", "song2.mp3"]
+  currentTrackIndex: number;
+  onTrackChange: (index: number) => void;
+  overrideMusic: string | null; // filename relative to /public/music/ (or null if none)
 }
 
-const playlist: Song[] = [
-  {
-    title: 'First snow',
-    artist: 'MayDoDo',
-    src: '/music/audio00.mp3',
-    cover: '/photos/image.png',
-  },
-  {
-    title: 'Last Christmas',
-    artist: 'MayDoDo',
-    src: '/music/audio6.mp3',
-    cover: '/photos/image.png',
-  },
-  {
-    title: 'Last Christmas',
-    artist: 'MayDoDo',
-    src: '/music/audio.mp3',
-    cover: '/photos/image.png',
-  },
-];
-
-export const MusicPlayer: React.FC = () => {
+export const MusicPlayer: React.FC<MusicPlayerProps> = ({
+  playlist,
+  currentTrackIndex,
+  onTrackChange,
+  overrideMusic,
+}) => {
   const audioRef = useRef<HTMLAudioElement>(null);
-
-  const [index, setIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const song = playlist[index];
+  // Determine active track src
+  // File paths are served at /music/<filename>
+  const activeSrc = overrideMusic 
+    ? `/music/${overrideMusic}` 
+    : playlist.length > 0 
+      ? `/music/${playlist[currentTrackIndex]}` 
+      : null;
+
+  // Clean filename for display (remove path & extension)
+  const displayTitle = overrideMusic
+    ? overrideMusic.replace(/\.[^/.]+$/, "")
+    : playlist.length > 0 && playlist[currentTrackIndex]
+      ? playlist[currentTrackIndex].replace(/\.[^/.]+$/, "")
+      : "Không có nhạc";
+
+  const displaySubtitle = overrideMusic
+    ? "🎵 Nhạc chủ đề tháng"
+    : playlist.length > 0
+      ? `🎵 Nhạc phát chung (${currentTrackIndex + 1}/${playlist.length})`
+      : "Chưa thiết lập playlist";
 
   const togglePlay = () => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || !activeSrc) return;
 
-    if (isPlaying) audioRef.current.pause();
-    else audioRef.current.play().catch(() => setIsPlaying(false));
-
-    setIsPlaying(!isPlaying);
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => {
+          console.warn("Autoplay blocked or play interrupted:", err);
+          setIsPlaying(false);
+        });
+    }
   };
 
   const nextSong = () => {
-    setIndex((prev) => (prev + 1) % playlist.length);
-    setIsPlaying(true);
+    if (overrideMusic || playlist.length <= 1) return;
+    onTrackChange((currentTrackIndex + 1) % playlist.length);
   };
 
   const prevSong = () => {
-    setIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
-    setIsPlaying(true);
+    if (overrideMusic || playlist.length <= 1) return;
+    onTrackChange((currentTrackIndex - 1 + playlist.length) % playlist.length);
   };
 
   const handleTimeUpdate = () => {
@@ -63,98 +71,120 @@ export const MusicPlayer: React.FC = () => {
     setProgress(duration ? (currentTime / duration) * 100 : 0);
   };
 
+  const handleEnded = () => {
+    if (overrideMusic) {
+      // Month-specific music loops automatically
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => setIsPlaying(false));
+      }
+    } else {
+      // Global playlist advances to next track
+      nextSong();
+    }
+  };
+
+  // When source changes, load and play if we were playing or if it is a new source
   useEffect(() => {
     if (!audioRef.current) return;
     audioRef.current.load();
-    // Set volume to 15% (0.15)
-    audioRef.current.volume = 0.15;
-    if (isPlaying) {
-      audioRef.current.play().catch(() => setIsPlaying(false));
-    }
-  }, [index]);
+    audioRef.current.volume = 0.35; // moderate romantic volume
 
-  // Set initial volume on mount
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = 0.15;
+    if (activeSrc) {
+      // Auto-play when month/track changes
+      audioRef.current.play()
+        .then(() => setIsPlaying(true))
+        .catch(() => {
+          // Keep isPlaying false if autoplay was blocked
+          setIsPlaying(false);
+        });
+    } else {
+      setIsPlaying(false);
     }
-  }, []);
+  }, [activeSrc]);
 
   return (
     <div className="fixed bottom-4 left-4 z-50 pointer-events-auto">
-      <div className="flex items-center gap-3 bg-silver/80 backdrop-blur-md 
-                      border border-white/20 rounded-full 
-                      px-3 py-2 shadow-lg">
+      <div className="flex items-center gap-3 bg-[#120020]/90 backdrop-blur-md 
+                      border border-pink-500/30 rounded-2xl 
+                      px-4 py-2.5 shadow-[0_0_15px_rgba(255,105,180,0.2)]">
 
-        {/* Cover */}
-        <img
-          src={song.cover}
-          alt="cover"
-          className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover"
-        />
+        {/* Rotating Music Disc Icon */}
+        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-tr from-pink-600 to-purple-800 
+                         flex items-center justify-center border border-pink-400/40 shadow-inner
+                         ${isPlaying ? 'animate-spin' : ''}`}
+             style={{ animationDuration: '6s' }}>
+          <Music className="text-pink-200" size={20} />
+        </div>
 
-        {/* Info + progress (ẨN TRÊN MOBILE) */}
-        <div className="hidden sm:flex flex-col min-w-[180px]">
-          <span className="text-white text-sm font-semibold truncate">
-            {song.title}
+        {/* Info + progress */}
+        <div className="flex flex-col min-w-[150px] max-w-[200px] sm:min-w-[180px]">
+          <span className="text-white text-xs sm:text-sm font-semibold truncate" title={displayTitle}>
+            {displayTitle}
           </span>
-          <span className="text-white/60 text-xs truncate">
-            {song.artist}
+          <span className="text-pink-300/70 text-[10px] sm:text-xs truncate">
+            {displaySubtitle}
           </span>
 
-          <div className="w-full h-[2px] bg-white/20 mt-1">
-            <div
-              className="h-full bg-white transition-all"
-              style={{ width: `${progress}%` }}
-            />
+          {activeSrc && (
+            <div className="w-full h-[3px] bg-pink-950 rounded-full mt-1.5 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-pink-500 to-rose-400 transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Controls */}
+        {activeSrc && (
+          <div className="flex items-center gap-1.5 ml-2">
+            {!overrideMusic && playlist.length > 1 && (
+              <button
+                onClick={prevSong}
+                className="text-pink-400/70 hover:text-pink-200 hover:scale-115 active:scale-95 transition p-1"
+                title="Bài trước"
+              >
+                <SkipBack size={16} />
+              </button>
+            )}
+
+            <button
+              onClick={togglePlay}
+              className="w-8 h-8 flex items-center justify-center rounded-full 
+                         bg-gradient-to-r from-pink-500 to-rose-500 text-white 
+                         hover:scale-110 hover:shadow-[0_0_8px_#FF69B4] active:scale-95 transition"
+              title={isPlaying ? "Tạm dừng" : "Phát"}
+            >
+              {isPlaying ? <Pause size={15} fill="white" /> : <Play size={15} fill="white" className="ml-0.5" />}
+            </button>
+
+            {!overrideMusic && playlist.length > 1 && (
+              <button
+                onClick={nextSong}
+                className="text-pink-400/70 hover:text-pink-200 hover:scale-115 active:scale-95 transition p-1"
+                title="Bài tiếp theo"
+              >
+                <SkipForward size={16} />
+              </button>
+            )}
           </div>
-        </div>
+        )}
 
-        {/* Controls desktop */}
-        <div className="hidden sm:flex items-center gap-2">
-          <button
-            onClick={prevSong}
-            className="text-white/70 hover:text-white transition"
-          >
-            <SkipBack size={18} />
-          </button>
-
-          <button
-            onClick={togglePlay}
-            className="w-9 h-9 flex items-center justify-center rounded-full 
-                       bg-silver text-white hover:scale-110 transition"
-          >
-            {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-          </button>
-
-          <button
-            onClick={nextSong}
-            className="text-white/70 hover:text-white transition"
-          >
-            <SkipForward size={18} />
-          </button>
-        </div>
-
-        {/* Play/Pause MOBILE ONLY */}
-        <button
-          onClick={togglePlay}
-          className="flex sm:hidden w-9 h-9 items-center justify-center 
-                     rounded-full bg-silver text-black"
-        >
-          {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-        </button>
-
-        {/* Audio */}
-        <audio
-          ref={audioRef}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={nextSong}
-          preload="auto"
-        >
-          <source src={song.src} type="audio/mpeg" />
-        </audio>
+        {/* Audio Element */}
+        {activeSrc && (
+          <audio
+            ref={audioRef}
+            src={activeSrc}
+            onTimeUpdate={handleTimeUpdate}
+            onEnded={handleEnded}
+            preload="auto"
+            loop={!!overrideMusic || playlist.length === 1}
+          />
+        )}
       </div>
     </div>
   );
 };
+
 export default MusicPlayer;

@@ -581,12 +581,176 @@ const HeartEditor: React.FC<HeartEditorProps> = ({ config, available, onChange, 
     </div>
 );
 
+// ── PlaylistManager ───────────────────────────────────────────────────────────
+
+interface PlaylistManagerProps {
+    available: string[];
+    selected: string[];
+    onSelectedChange: (val: string[]) => void;
+    onRefresh: () => Promise<void>;
+}
+
+const PlaylistManager: React.FC<PlaylistManagerProps> = ({ available, selected, onSelectedChange, onRefresh }) => {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
+    const [uploadMsg, setUploadMsg] = useState('');
+
+    const handleUpload = async (files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        setUploading(true);
+        try {
+            const filename = await uploadFile(files[0], 'music');
+            await onRefresh();
+            onSelectedChange([...selected, filename]);
+            setUploadMsg('✔ Tải lên thành công!');
+        } catch (e: any) {
+            setUploadMsg(`Lỗi: ${e.message}`);
+        }
+        setUploading(false);
+        setTimeout(() => setUploadMsg(''), 4000);
+    };
+
+    const handleRemove = (index: number) => {
+        const next = [...selected];
+        next.splice(index, 1);
+        onSelectedChange(next);
+    };
+
+    const handleAdd = (filename: string) => {
+        if (!selected.includes(filename)) {
+            onSelectedChange([...selected, filename]);
+        }
+    };
+
+    const moveItem = (index: number, direction: 'up' | 'down') => {
+        const nextIndex = direction === 'up' ? index - 1 : index + 1;
+        if (nextIndex < 0 || nextIndex >= selected.length) return;
+        const next = [...selected];
+        const temp = next[index];
+        next[index] = next[nextIndex];
+        next[nextIndex] = temp;
+        onSelectedChange(next);
+    };
+
+    return (
+        <div className="rounded-xl border border-pink-800/30 bg-[#0f0018] overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-[#120020] border-b border-pink-800/20">
+                <span className="text-sm font-semibold text-pink-200">🎵 Danh sách nhạc phát chung ({selected.length})</span>
+                <button
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => inputRef.current?.click()}
+                    className="shrink-0 px-3 py-1 rounded-lg text-xs font-semibold bg-pink-600/20 border border-pink-500/40 text-pink-300 hover:bg-pink-600/40 disabled:opacity-40 transition"
+                >
+                    {uploading ? '⏳' : '⬆️ Tải lên nhạc'}
+                </button>
+                <input
+                    ref={inputRef}
+                    type="file"
+                    accept="audio/*,.mp3,.m4a,.aac,.wav,.flac"
+                    className="hidden"
+                    onChange={(e) => handleUpload(e.target.files)}
+                    onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
+                />
+            </div>
+            <div className="p-4 space-y-4">
+                {uploadMsg && (
+                    <p className={`text-xs ${uploadMsg.startsWith('Lỗi') ? 'text-red-400' : 'text-green-400'}`}>
+                        {uploadMsg}
+                    </p>
+                )}
+
+                {selected.length > 0 ? (
+                    <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                        <p className="text-pink-400 text-xs font-semibold">Thứ tự phát nhạc:</p>
+                        {selected.map((f, idx) => (
+                            <div
+                                key={`${f}-${idx}`}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-pink-500 bg-pink-500/10"
+                            >
+                                <span className="text-xs text-pink-300 font-bold">{idx + 1}.</span>
+                                <span className="flex-1 text-xs text-pink-200 truncate">{f}</span>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        disabled={idx === 0}
+                                        onClick={() => moveItem(idx, 'up')}
+                                        className="p-1 text-xs text-pink-300 hover:text-pink-100 disabled:opacity-30"
+                                        title="Di chuyển lên"
+                                    >
+                                        ▲
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={idx === selected.length - 1}
+                                        onClick={() => moveItem(idx, 'down')}
+                                        className="p-1 text-xs text-pink-300 hover:text-pink-100 disabled:opacity-30"
+                                        title="Di chuyển xuống"
+                                    >
+                                        ▼
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleRemove(idx)}
+                                        className="p-1 text-xs text-red-400 hover:text-red-300 font-bold ml-1"
+                                        title="Xóa khỏi danh sách phát"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-pink-700 text-xs italic text-center py-2">
+                        Chưa chọn bài hát nào. Chọn nhạc từ danh sách bên dưới hoặc tải lên nhạc mới.
+                    </p>
+                )}
+
+                <div>
+                    <p className="text-pink-400 text-xs font-semibold mb-2">Thư viện nhạc có sẵn:</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                        {available.map((f) => {
+                            const isAdded = selected.includes(f);
+                            return (
+                                <div
+                                    key={f}
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-pink-900/30 bg-[#120020] hover:border-pink-700/40"
+                                >
+                                    <span className="flex-1 text-xs text-pink-300 truncate">{f}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAdd(f)}
+                                        disabled={isAdded}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold transition ${
+                                            isAdded
+                                                ? 'bg-pink-900/30 text-pink-600 cursor-default'
+                                                : 'bg-pink-600/30 text-pink-300 hover:bg-pink-600/50'
+                                        }`}
+                                    >
+                                        {isAdded ? 'Đã thêm' : '➕ Thêm'}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                        {available.length === 0 && (
+                            <p className="text-pink-700 text-xs italic text-center py-1">Không có tệp nhạc nào</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ── GlobalEditor ──────────────────────────────────────────────────────────────
 
 const GlobalEditor: React.FC<{
     config: AnniversaryConfig;
     available: AvailableMedia;
-}> = ({ config, available }) => (
+    onChange: (updated: AnniversaryConfig) => void;
+    onRefresh: () => Promise<void>;
+}> = ({ config, available, onChange, onRefresh }) => (
     <div className="space-y-5 max-w-md">
         <div>
             <label className="block text-pink-200 text-sm mb-1">Tên đôi</label>
@@ -600,6 +764,13 @@ const GlobalEditor: React.FC<{
                 Sửa trong <code>utils/anniversaryConfig.ts</code>
             </p>
         </div>
+
+        <PlaylistManager
+            available={available.music}
+            selected={config.globalMusic || []}
+            onSelectedChange={(v) => onChange({ ...config, globalMusic: v })}
+            onRefresh={onRefresh}
+        />
 
         <div className="p-4 bg-[#1c0030] rounded-xl border border-pink-800/30 space-y-3">
             <h3 className="text-pink-200 font-semibold text-sm">📊 Thư viện media</h3>
@@ -760,7 +931,12 @@ export const AdminPanel: React.FC = () => {
                     {activeTab === 'global' && (
                         <>
                             <h2 className="text-base font-bold text-pink-300 mb-4">🌐 Tổng quan</h2>
-                            <GlobalEditor config={config} available={available} />
+                            <GlobalEditor
+                                config={config}
+                                available={available}
+                                onChange={setConfig}
+                                onRefresh={refreshAvailable}
+                            />
                         </>
                     )}
 

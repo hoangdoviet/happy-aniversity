@@ -22,6 +22,7 @@ export interface AnniversaryConfig {
   coupleNames: string;
   months: MonthConfig[];
   heartMusic: string | null;
+  globalMusic?: string[];
 }
 
 export interface HandPositionData {

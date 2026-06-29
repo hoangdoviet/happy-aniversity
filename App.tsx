@@ -14,6 +14,7 @@ import { SceneState, TreeMode } from './types';
 import { OrbitMediaFile } from './components/MediaOrbit';
 import { getMonthMedia, getHeartMedia, fetchConfig, defaultAnniversaryConfig } from './utils/anniversaryConfig';
 import { AnniversaryConfig } from './types';
+import { MusicPlayer } from './components/MusicPlayer';
 
 // Simple Error Boundary to catch 3D resource loading errors (like textures)
 // ── Simple routing ─────────────────────────────────────────────────────────
@@ -100,8 +101,8 @@ function AnniversaryApp() {
   const [showHeartConfirm, setShowHeartConfirm] = useState(false);
   const [heartProgress, setHeartProgress] = useState(0);
 
-  // Music
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Music playlist track state
+  const [globalTrackIndex, setGlobalTrackIndex] = useState(0);
 
   // ── Load media for current month ──────────────────────────────────────────
 
@@ -127,18 +128,6 @@ function AnniversaryApp() {
     ];
     setMediaFiles(files);
     setSelectedMediaIndex(null); // close any open modal on month change
-
-    // Update music
-    if (!audioRef.current) audioRef.current = new Audio();
-    const audio = audioRef.current;
-    if (raw.music) {
-      audio.src = raw.music;
-      audio.loop = true;
-      audio.volume = 0.45;
-      audio.play().catch(() => { /* autoplay blocked */ });
-    } else {
-      audio.pause();
-    }
   }, [currentMonth, config]);
 
   // ── Month transitions ──────────────────────────────────────────────────────
@@ -334,6 +323,10 @@ function AnniversaryApp() {
     ? config.months.find((m) => m.month === currentMonth)
     : null;
 
+  const activeOverrideMusic = currentMonth === 0
+    ? config.heartMusic
+    : (monthCfg?.music ?? null);
+
   // ── Mobile touch swipe handlers ──────────────────────────────────────────
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -451,6 +444,13 @@ function AnniversaryApp() {
           onNext={handleNextMedia}
         />
       )}
+
+      <MusicPlayer
+        playlist={config.globalMusic || []}
+        currentTrackIndex={globalTrackIndex}
+        onTrackChange={setGlobalTrackIndex}
+        overrideMusic={activeOverrideMusic}
+      />
 
       <GestureGuide />
       <HandCursor x={cursor.x} y={cursor.y} detected={cursor.detected} pointerDown={cursorPressed} />
