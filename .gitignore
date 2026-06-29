@@ -39,5 +39,5 @@ public/secret/*
 public/secret2/*
 !public/secret2/.gitkeep
 
-public/video/*
-!public/video/.gitkeep
+public/videos/*
+!public/videos/.gitkeep
